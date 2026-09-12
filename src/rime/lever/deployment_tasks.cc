@@ -29,8 +29,6 @@
 #include <windows.h>
 #endif
 
-using namespace std::placeholders;
-
 namespace fs = std::filesystem;
 
 namespace rime {
@@ -112,6 +110,10 @@ bool InstallationUpdate::Run(Deployer* deployer) {
       deployer->sync_dir = user_data_path / "sync";
     }
     LOG(INFO) << "sync dir: " << deployer->sync_dir;
+    bool backup_config_files;
+    if (config.GetBool("backup_config_files", &backup_config_files)) {
+      deployer->backup_config_files = backup_config_files;
+    }
     if (config.GetString("distribution_code_name", &last_distro_code_name)) {
       LOG(INFO) << "previous distribution: " << last_distro_code_name;
     }
@@ -435,8 +437,8 @@ bool ConfigFileUpdate::Run(Deployer* deployer) {
   path trash = user_data_path / "trash";
   if (TrashDeprecatedUserCopy(source_config_path, dest_config_path,
                               version_key_, trash)) {
-    LOG(INFO) << "deprecated user copy of '" << file_name_ << "' is moved to "
-              << trash;
+    LOG(WARNING) << "deprecated user copy of '" << file_name_
+                 << "' is moved to " << trash;
   }
   // build the config file if needs update
   the<Config> config(Config::Require("config")->Create(file_name_));
@@ -537,6 +539,10 @@ static bool IsCustomizedCopy(const path& file_path) {
 }
 
 bool BackupConfigFiles::Run(Deployer* deployer) {
+  if (!deployer->backup_config_files) {
+    LOG(INFO) << "skip backing up config files because it's disabled.";
+    return true;
+  }
   LOG(INFO) << "backing up config files.";
   const path user_data_path(deployer->user_data_dir);
   if (!fs::exists(user_data_path))
@@ -618,7 +624,7 @@ bool CleanupTrash::Run(Deployer* deployer) {
 bool CleanOldLogFiles::Run(Deployer* deployer) {
   bool success = true;
 #ifdef RIME_ENABLE_LOGGING
-  if (FLAGS_logtostderr) {
+  if (FLAGS_logtostderr || FLAGS_log_dir.empty()) {
     return success;
   }
 
@@ -638,7 +644,8 @@ bool CleanOldLogFiles::Run(Deployer* deployer) {
     // avoid iteration on non-existing directory, which may cause error
     if (!fs::exists(fs::path(dir)))
       continue;
-    vector<path> files;
+    vector<path> files_to_remove;
+    set<path> files_in_use;
     DLOG(INFO) << "temp directory: " << dir;
     try {
       // preparing files
@@ -648,7 +655,14 @@ bool CleanOldLogFiles::Run(Deployer* deployer) {
             boost::starts_with(file_name, app_name) &&
             boost::ends_with(file_name, ".log") &&
             !boost::contains(file_name, today)) {
-          files.push_back(entry.path());
+          files_to_remove.push_back(entry.path());
+        } else if (entry.is_symlink()) {
+          auto target = fs::read_symlink(entry.path());
+          const string& target_file_name(target.filename().u8string());
+          if (boost::starts_with(target_file_name, app_name) &&
+              boost::ends_with(target_file_name, ".log")) {
+            files_in_use.insert(target);
+          }
         }
       }
     } catch (const fs::filesystem_error& ex) {
@@ -658,7 +672,9 @@ bool CleanOldLogFiles::Run(Deployer* deployer) {
       continue;
     }
     // remove files
-    for (const auto& file : files) {
+    for (const auto& file : files_to_remove) {
+      if (files_in_use.find(file.filename()) != files_in_use.end())
+        continue;
       try {
         DLOG(INFO) << "removing log file '" << file.filename() << "'.";
         // ensure write permission

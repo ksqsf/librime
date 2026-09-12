@@ -8,25 +8,29 @@
 #ifndef RIME_API_H_
 #define RIME_API_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#include <stddef.h>
-#include <stdint.h>
-
 #if defined(_WIN32)
 #if defined(RIME_EXPORTS)
 /* DLL export */
-#define RIME_API __declspec(dllexport)
+#define RIME_DLL __declspec(dllexport)
+#define RIME_API extern "C" RIME_DLL
 #elif defined(RIME_IMPORTS)
 /* DLL import */
-#define RIME_API __declspec(dllimport)
+#define RIME_DLL __declspec(dllimport)
+#define RIME_API extern "C" RIME_DLL
 #else
 /* static library */
+#define RIME_DLL
 #define RIME_API
 #endif
 #else /* _WIN32 */
+#define RIME_DLL
 #define RIME_API
 #endif /* _WIN32 */
 
@@ -157,6 +161,16 @@ typedef struct RIME_FLAVORED(rime_context_t) {
   char* commit_text_preview;
   char** select_labels;
 } RIME_FLAVORED(RimeContext);
+
+/*!
+ *  Should be initialized by calling RIME_STRUCT_INIT(Type, var);
+ */
+typedef struct rime_candidate_preview_t {
+  int data_size;
+  char* text_before_selection;
+  char* selected_text;
+  char* text_after_selection;
+} RimeCandidatePreview;
 
 /*!
  *  Should be initialized by calling RIME_STRUCT_INIT(Type, var);
@@ -501,6 +515,12 @@ typedef struct RIME_FLAVORED(rime_api_t) {
                                               size_t index);
 
   Bool (*change_page)(RimeSessionId session_id, Bool backward);
+
+  //! get the preview of committing the highlighted candidate
+  Bool (*get_candidate_preview)(RimeSessionId session_id,
+                                RimeCandidatePreview* preview);
+  //! free a RimeCandidatePreview filled by get_candidate_preview
+  Bool (*free_candidate_preview)(RimeCandidatePreview* preview);
 } RIME_FLAVORED(RimeApi);
 
 //! API entry

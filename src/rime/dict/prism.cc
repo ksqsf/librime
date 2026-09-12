@@ -16,13 +16,21 @@ namespace rime {
 namespace {
 
 struct node_t {
-  string key;
+  node_t(size_t node_pos, size_t key_length)
+      : node_pos(node_pos), key_length(key_length) {}
+
   size_t node_pos;
+  size_t key_length;
 };
+
+// 在 SpellingDescriptor::type 的高位記錄 is_correction, 避開符號位
+const int32_t kTypeIsCorrectionMask = 1 << 30;
+const int32_t kSpellingTypeMask = ~kTypeIsCorrectionMask;
 
 }  // namespace
 
-const char kPrismFormat[] = "Rime::Prism/3.0";
+const char kPrismFormat[] = "Rime::Prism/4.0";
+const double kPrismFormatVersion = 4.0;
 
 const char kPrismFormatPrefix[] = "Rime::Prism/";
 const size_t kPrismFormatPrefixLen = sizeof(kPrismFormatPrefix) - 1;
@@ -61,7 +69,9 @@ SyllableId SpellingAccessor::syllable_id() const {
 SpellingProperties SpellingAccessor::properties() const {
   SpellingProperties props;
   if (iter_ && iter_ < end_) {
-    props.type = static_cast<SpellingType>(iter_->type);
+    int32_t packed_type = iter_->type;
+    props.type = static_cast<SpellingType>(packed_type & kSpellingTypeMask);
+    props.is_correction = (packed_type & kTypeIsCorrectionMask) != 0;
     props.credibility = iter_->credibility;
     if (!iter_->tips.empty())
       props.tips = iter_->tips.c_str();
@@ -95,6 +105,14 @@ bool Prism::Load() {
     return false;
   }
   format_ = atof(&metadata_->format[kPrismFormatPrefixLen]);
+
+  // 版本檢查: 強制重構舊版本
+  if (format_ < kPrismFormatVersion - DBL_EPSILON) {
+    LOG(INFO) << "prism format " << format_ << " is too old. upgrading to "
+              << kPrismFormatVersion;
+    Close();
+    return false;
+  }
 
   char* array = metadata_->double_array.get();
   if (!array) {
@@ -215,7 +233,12 @@ bool Prism::Build(const Syllabary& syllabary,
       auto desc = item->begin();
       for (; j != i->second.end(); ++j, ++desc) {
         desc->syllable_id = syllable_to_id[j->str];
-        desc->type = static_cast<int32_t>(j->properties.type);
+        // 打包寫入 type + is_correction
+        int32_t packed_type = static_cast<int32_t>(j->properties.type);
+        if (j->properties.is_correction) {
+          packed_type |= kTypeIsCorrectionMask;
+        }
+        desc->type = packed_type;
         desc->credibility = j->properties.credibility;
         if (!j->properties.tips.empty() &&
             !CopyString(j->properties.tips, &desc->tips)) {
@@ -249,17 +272,16 @@ bool Prism::GetValue(const string& key, int* value) const {
 
 // Given a key, search all the keys in the tree that share
 // a common prefix with that key.
-void Prism::CommonPrefixSearch(const string& key, vector<Match>* result) {
+void Prism::CommonPrefixSearch(std::string_view key, vector<Match>* result) {
   if (!result || key.empty())
     return;
-  size_t len = key.length();
-  result->resize(len);
-  size_t num_results =
-      trie_->commonPrefixSearch(key.c_str(), &result->front(), len, len);
+  result->resize(key.length());
+  size_t num_results = trie_->commonPrefixSearch(key.data(), &result->front(),
+                                                 key.length(), key.length());
   result->resize(num_results);
 }
 
-void Prism::ExpandSearch(const string& key,
+void Prism::ExpandSearch(std::string_view key,
                          vector<Match>* result,
                          size_t limit) {
   if (!result)
@@ -268,7 +290,8 @@ void Prism::ExpandSearch(const string& key,
   size_t count = 0;
   size_t node_pos = 0;
   size_t key_pos = 0;
-  int ret = trie_->traverse(key.c_str(), node_pos, key_pos);
+  const char* search_key = key.empty() ? "" : key.data();
+  int ret = trie_->traverse(search_key, node_pos, key_pos, key.length());
   // key is not a valid path
   if (ret == -2)
     return;
@@ -277,25 +300,23 @@ void Prism::ExpandSearch(const string& key,
     if (limit && ++count >= limit)
       return;
   }
+  const char* alphabet =
+      (format_ > 1.0 - DBL_EPSILON) ? metadata_->alphabet : kDefaultAlphabet;
   std::queue<node_t> q;
-  q.push({key, node_pos});
+  q.emplace(node_pos, key_pos);
   while (!q.empty()) {
-    node_t node = q.front();
+    const node_t node = q.front();
     q.pop();
-    const char* c =
-        (format_ > 1.0 - DBL_EPSILON) ? metadata_->alphabet : kDefaultAlphabet;
-    for (; *c; ++c) {
-      string k = node.key + *c;
-      size_t k_pos = node.key.length();
-      size_t n_pos = node.node_pos;
-      ret = trie_->traverse(k.c_str(), n_pos, k_pos);
-      if (ret <= -2) {
-        // ignore
-      } else if (ret == -1) {
-        q.push({k, n_pos});
-      } else {
-        q.push({k, n_pos});
-        result->push_back(Match{ret, k_pos});
+    for (const char* c = alphabet; *c; ++c) {
+      size_t next_node_pos = node.node_pos;
+      size_t next_key_pos = 0;
+      ret = trie_->traverse(c, next_node_pos, next_key_pos, 1);
+      if (ret <= -2)
+        continue;
+      const size_t matched_length = node.key_length + next_key_pos;
+      q.emplace(next_node_pos, matched_length);
+      if (ret >= 0) {
+        result->push_back(Match{ret, matched_length});
         if (limit && ++count >= limit)
           return;
       }

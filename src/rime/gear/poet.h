@@ -13,11 +13,10 @@
 #include <rime/common.h>
 #include <rime/translation.h>
 #include <rime/gear/translator_commons.h>
+#include <rime/gear/incremental_word_graph.h>
 #include <rime/gear/contextual_translation.h>
 
 namespace rime {
-
-using WordGraph = map<int, map<int, DictEntryList>>;
 
 class Grammar;
 class Language;
@@ -39,6 +38,11 @@ class Poet {
   an<Sentence> MakeSentence(const WordGraph& graph,
                             size_t total_length,
                             const string& preceding_text);
+  deque<an<Sentence>> MakeSentences(const WordGraph& graph,
+                                    size_t total_length,
+                                    const string& preceding_text,
+                                    size_t count,
+                                    double cutoff_threshold);
 
   template <class TranslatorT>
   an<Translation> ContextualWeighted(an<Translation> translation,

@@ -27,23 +27,30 @@ struct Chunk {
   string remaining_code;  // for predictive queries
   size_t matching_code_size = 0;
   double credibility = 0.0;
+  double quality_len = 0.0;
 
   Chunk() = default;
   Chunk(Table* t,
         const Code& c,
         const table::Entry* e,
         size_t m,
-        double cr = 0.0)
+        double cr = 0.0,
+        double q = 0.0)
       : table(t),
         code(c),
         entries(e),
         size(1),
         cursor(0),
         matching_code_size(m),
-        credibility(cr) {}
-  Chunk(Table* t, const TableAccessor& a, double cr = 0.0)
-      : Chunk(t, a, string(), cr) {}
-  Chunk(Table* t, const TableAccessor& a, const string& r, double cr = 0.0)
+        credibility(cr),
+        quality_len(q) {}
+  Chunk(Table* t, const TableAccessor& a, double cr = 0.0, double q = 0.0)
+      : Chunk(t, a, string(), cr, q) {}
+  Chunk(Table* t,
+        const TableAccessor& a,
+        const string& r,
+        double cr = 0.0,
+        double q = 0.0)
       : table(t),
         code(a.index_code()),
         entries(a.entry()),
@@ -51,7 +58,8 @@ struct Chunk {
         cursor(0),
         remaining_code(r),
         matching_code_size(a.index_code().size()),
-        credibility(cr) {}
+        credibility(cr),
+        quality_len(q) {}
 
   bool is_exact_match() const { return matching_code_size == code.size(); }
 
@@ -85,10 +93,13 @@ CodeMatch match_extra_code(const table::Code* extra_code,
                            size_t depth,
                            const SyllableGraph& syll_graph,
                            size_t current_pos,
-                           bool predict_word) {
+                           bool predict_word,
+                           set<size_t>* accessed_positions) {
   const CodeMatch kFailed{false, 0, 0};
   if (!extra_code || depth >= extra_code->size)
     return {true, depth, current_pos};
+  if (accessed_positions)
+    accessed_positions->insert(current_pos);
   if (current_pos >= syll_graph.interpreted_length) {
     if (predict_word)
       return {true, depth, syll_graph.interpreted_length};
@@ -104,8 +115,9 @@ CodeMatch match_extra_code(const table::Code* extra_code,
     return kFailed;
   CodeMatch best_match = kFailed;
   for (const SpellingProperties* props : spellings->second) {
-    CodeMatch match = match_extra_code(extra_code, depth + 1, syll_graph,
-                                       props->end_pos, predict_word);
+    CodeMatch match =
+        match_extra_code(extra_code, depth + 1, syll_graph, props->end_pos,
+                         predict_word, accessed_positions);
     if (!match.success)
       continue;
     if (match.end_pos > best_match.end_pos)
@@ -118,6 +130,14 @@ CodeMatch match_extra_code(const table::Code* extra_code,
 
 DictEntryIterator::DictEntryIterator()
     : query_result_(New<dictionary::QueryResult>()) {}
+
+DictEntryIterator DictEntryIterator::Clone() const {
+  DictEntryIterator copy(*this);
+  copy.query_result_ = New<dictionary::QueryResult>(*query_result_);
+  if (entry_)
+    copy.entry_ = New<DictEntry>(*entry_);
+  return copy;
+}
 
 void DictEntryIterator::AddChunk(dictionary::Chunk&& chunk) {
   query_result_->chunks.push_back(std::move(chunk));
@@ -137,6 +157,7 @@ void DictEntryIterator::AddFilter(DictEntryFilter filter) {
   // the introduced filter could invalidate the current or even all the
   // remaining entries
   while (!exhausted() && !filter_(Peek())) {
+    entry_.reset();
     FindNextEntry();
   }
 }
@@ -153,6 +174,7 @@ an<DictEntry> DictEntryIterator::Peek() {
     entry_->text = chunk.table->GetEntryText(e);
     const double kS = 18.420680743952367;  // log(1e8)
     entry_->weight = e.weight - kS + chunk.credibility;
+    entry_->quality_len = chunk.quality_len;
     if (!chunk.remaining_code.empty()) {
       entry_->comment = "~" + chunk.remaining_code;
       entry_->remaining_code_length = chunk.remaining_code.length();
@@ -181,15 +203,12 @@ bool DictEntryIterator::FindNextEntry() {
 }
 
 bool DictEntryIterator::Next() {
-  entry_.reset();
-  if (!FindNextEntry()) {
-    return false;
-  }
-  while (filter_ && !filter_(Peek())) {
+  do {
+    entry_.reset();
     if (!FindNextEntry()) {
       return false;
     }
-  }
+  } while (filter_ && !filter_(Peek()));
   return true;
 }
 
@@ -233,9 +252,10 @@ static void lookup_table(Table* table,
                          const SyllableGraph& syllable_graph,
                          size_t start_pos,
                          bool predict_word,
-                         double initial_credibility) {
+                         double initial_credibility,
+                         set<size_t>* accessed_positions) {
   TableQueryResult result;
-  if (!table->Query(syllable_graph, start_pos, &result)) {
+  if (!table->Query(syllable_graph, start_pos, &result, accessed_positions)) {
     return;
   }
   // copy result
@@ -243,18 +263,20 @@ static void lookup_table(Table* table,
     size_t end_pos = v.first;
     for (TableAccessor& a : v.second) {
       double cr = initial_credibility + a.credibility();
+      double q = a.quality_len();
       if (a.extra_code()) {
         do {
           dictionary::CodeMatch match = dictionary::match_extra_code(
-              a.extra_code(), 0, syllable_graph, end_pos, predict_word);
+              a.extra_code(), 0, syllable_graph, end_pos, predict_word,
+              accessed_positions);
           if (!match.success)
             continue;
           size_t matching_code_size = a.index_code().size() + match.depth;
           (*collector)[match.end_pos].AddChunk(
-              {table, a.code(), a.entry(), matching_code_size, cr});
+              {table, a.code(), a.entry(), matching_code_size, cr, q});
         } while (a.Next());
       } else {
-        (*collector)[end_pos].AddChunk({table, a, cr});
+        (*collector)[end_pos].AddChunk({table, a, cr, q});
       }
     }
   }
@@ -262,8 +284,10 @@ static void lookup_table(Table* table,
 
 an<DictEntryCollector> Dictionary::Lookup(const SyllableGraph& syllable_graph,
                                           size_t start_pos,
+                                          const hash_set<string>* blacklist,
                                           bool predict_word,
-                                          double initial_credibility) {
+                                          double initial_credibility,
+                                          set<size_t>* accessed_positions) {
   if (!loaded())
     return nullptr;
   auto collector = New<DictEntryCollector>();
@@ -271,13 +295,18 @@ an<DictEntryCollector> Dictionary::Lookup(const SyllableGraph& syllable_graph,
     if (!table->IsOpen())
       continue;
     lookup_table(table.get(), collector.get(), syllable_graph, start_pos,
-                 predict_word, initial_credibility);
+                 predict_word, initial_credibility, accessed_positions);
   }
   if (collector->empty())
     return nullptr;
-  // sort each group of equal code length
+  // for each group of equal code length, sort it and filter words
   for (auto& v : *collector) {
     v.second.Sort();
+    if (blacklist && !blacklist->empty()) {
+      v.second.AddFilter([blacklist](an<DictEntry> entry) {
+        return entry && !blacklist->count(entry->text);
+      });
+    }
   }
   return collector;
 }
@@ -285,7 +314,8 @@ an<DictEntryCollector> Dictionary::Lookup(const SyllableGraph& syllable_graph,
 size_t Dictionary::LookupWords(DictEntryIterator* result,
                                const string& str_code,
                                bool predictive,
-                               size_t expand_search_limit) {
+                               size_t expand_search_limit,
+                               const hash_set<string>* blacklist) {
   DLOG(INFO) << "lookup: " << str_code;
   if (!loaded())
     return 0;
@@ -324,6 +354,11 @@ size_t Dictionary::LookupWords(DictEntryIterator* result,
         }
       }
     }
+  }
+  if (blacklist && !blacklist->empty()) {
+    result->AddFilter([blacklist](an<DictEntry> entry) {
+      return entry && !blacklist->count(entry->text);
+    });
   }
   return keys.size();
 }

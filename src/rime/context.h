@@ -16,7 +16,7 @@ namespace rime {
 class Candidate;
 class KeyEvent;
 
-class RIME_API Context {
+class RIME_DLL Context {
  public:
   using Notifier = signal<void(Context* ctx)>;
   using OptionUpdateNotifier = signal<void(Context* ctx, const string& option)>;
@@ -36,11 +36,15 @@ class RIME_API Context {
   bool HasMenu() const;
   an<Candidate> GetSelectedCandidate() const;
 
+  Composition::CandidatePreview GetCandidatePreview() const;
+
   bool PushInput(char ch);
   bool PushInput(const string& str);
   bool PopInput(size_t len = 1);
   bool DeleteInput(size_t len = 1);
   void Clear();
+  // Clear and notify abort
+  void AbortComposition();
 
   // return false if there is no candidate at index
   bool Select(size_t index);
@@ -74,6 +78,8 @@ class RIME_API Context {
   bool get_option(const string& name) const;
   void set_property(const string& name, const string& value);
   string get_property(const string& name) const;
+  const map<string, bool>& options() const { return options_; }
+  const map<string, string>& properties() const { return properties_; }
   // options and properties starting with '_' are local to schema;
   // others are session scoped.
   void ClearTransientOptions();
@@ -82,6 +88,7 @@ class RIME_API Context {
   Notifier& select_notifier() { return select_notifier_; }
   Notifier& update_notifier() { return update_notifier_; }
   Notifier& delete_notifier() { return delete_notifier_; }
+  Notifier& abort_notifier() { return abort_notifier_; }
   OptionUpdateNotifier& option_update_notifier() {
     return option_update_notifier_;
   }
@@ -92,7 +99,6 @@ class RIME_API Context {
 
  private:
   string GetSoftCursor() const;
-  bool DeleteCandidate(function<an<Candidate>(Segment& seg)> get_candidate);
 
   string input_;
   size_t caret_pos_ = 0;
@@ -105,6 +111,7 @@ class RIME_API Context {
   Notifier select_notifier_;
   Notifier update_notifier_;
   Notifier delete_notifier_;
+  Notifier abort_notifier_;
   OptionUpdateNotifier option_update_notifier_;
   PropertyUpdateNotifier property_update_notifier_;
   KeyEventNotifier unhandled_key_notifier_;

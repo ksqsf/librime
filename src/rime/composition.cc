@@ -119,7 +119,7 @@ string Composition::GetCommitText() const {
   return result;
 }
 
-string Composition::GetScriptText() const {
+string Composition::GetScriptText(bool keep_selection) const {
   string result;
   size_t start = 0;
   size_t end = 0;
@@ -127,9 +127,12 @@ string Composition::GetScriptText() const {
     auto cand = seg.GetSelectedCandidate();
     start = end;
     end = cand ? cand->end() : seg.end;
-    if (cand && !cand->preedit().empty())
+    if (keep_selection && cand && !cand->text().empty() &&
+        seg.status >= Segment::kSelected)
+      result += cand->text();
+    else if (cand && !cand->preedit().empty())
       result += boost::erase_first_copy(cand->preedit(), "\t");
-    else
+    else if (!seg.HasTag("phony"))
       result += input_.substr(start, end - start);
   }
   if (input_.length() > end) {
@@ -174,6 +177,55 @@ string Composition::GetTextBefore(size_t pos) const {
     }
   }
   return string();
+}
+
+Composition::CandidatePreview Composition::GetCandidatePreview(
+    const string& full_input) const {
+  CandidatePreview preview;
+  // input_ is truncated to the caret; full_input recovers chars past it.
+  const string& source = !full_input.empty() ? full_input : input_;
+
+  if (empty()) {
+    preview.selected_text = source;
+    return preview;
+  }
+
+  // rime appends an empty segment at the caret; use the last non-empty one.
+  size_t active = size() - 1;
+  while (active > 0 && at(active).start >= at(active).end) {
+    --active;
+  }
+
+  string before;
+  for (size_t i = 0; i < active; i++) {
+    const Segment& seg = at(i);
+    if (auto cand = seg.GetSelectedCandidate()) {
+      before += cand->text();
+    } else {
+      before += input_.substr(seg.start, seg.end - seg.start);
+    }
+  }
+  preview.text_before_selection = before;
+
+  const Segment& current_seg = at(active);
+  size_t candidate_end_pos = current_seg.end;
+  string segment_text;
+  if (auto candidate = current_seg.GetSelectedCandidate()) {
+    if (candidate && !candidate->text().empty()) {
+      segment_text = candidate->text();
+      candidate_end_pos = candidate->end();
+    }
+  }
+  if (segment_text.empty()) {
+    segment_text =
+        input_.substr(current_seg.start, current_seg.end - current_seg.start);
+  }
+  preview.selected_text = segment_text;
+
+  if (source.length() > candidate_end_pos) {
+    preview.text_after_selection = source.substr(candidate_end_pos);
+  }
+  return preview;
 }
 
 }  // namespace rime

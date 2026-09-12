@@ -7,6 +7,7 @@
 #ifndef RIME_DB_H_
 #define RIME_DB_H_
 
+#include <stdint.h>
 #include <rime_api.h>
 #include <rime/common.h>
 #include <rime/component.h>
@@ -35,8 +36,8 @@ class Db : public Class<Db, const string&> {
   Db(const path& file_path, const string& name);
   virtual ~Db() = default;
 
-  RIME_API bool Exists() const;
-  RIME_API virtual bool Remove();
+  RIME_DLL bool Exists() const;
+  RIME_DLL virtual bool Remove();
 
   virtual bool Open() = 0;
   virtual bool OpenReadOnly() = 0;
@@ -56,6 +57,9 @@ class Db : public Class<Db, const string&> {
   virtual bool Update(const string& key, const string& value) = 0;
   virtual bool Erase(const string& key) = 0;
 
+  // Zero disables cross-query caching for backends without mutation tracking.
+  virtual uint64_t revision() const { return 0; }
+
   const string& name() const { return name_; }
   const path& file_path() const { return file_path_; }
   bool loaded() const { return loaded_; }
@@ -65,6 +69,7 @@ class Db : public Class<Db, const string&> {
   void enable() { disabled_ = false; }
 
  protected:
+  uint64_t revision_ = 1;
   string name_;
   path file_path_;
   bool loaded_ = false;
@@ -93,7 +98,7 @@ class Recoverable {
 
 class ResourceResolver;
 
-class RIME_API DbComponentBase {
+class RIME_DLL DbComponentBase {
  public:
   DbComponentBase();
   virtual ~DbComponentBase();

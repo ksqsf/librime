@@ -16,8 +16,6 @@
 #include <rime/switches.h>
 #include <rime/gear/key_binder.h>
 
-using namespace std::placeholders;
-
 namespace rime {
 
 enum KeyBindingCondition {
@@ -180,7 +178,9 @@ void KeyBindings::LoadBindings(const an<ConfigList>& bindings) {
     }
     KeyEvent key;
     if (!key.Parse(pattern->str())) {
-      LOG(WARNING) << "invalid key binding #" << i << ".";
+      LOG(WARNING) << "invalid key binding #" << i
+                   << ", with invalid accept pattern: " << pattern->str()
+                   << ".";
       continue;
     }
     if (auto target = map->GetValue("send")) {
@@ -188,24 +188,37 @@ void KeyBindings::LoadBindings(const an<ConfigList>& bindings) {
       if (key.Parse(target->str())) {
         binding.target.push_back(std::move(key));
       } else {
-        LOG(WARNING) << "invalid key binding #" << i << ".";
+        LOG(WARNING) << "invalid key binding #" << i
+                     << ", with invalid send pattern: " << target->str() << ".";
         continue;
       }
     } else if (auto target = map->GetValue("send_sequence")) {
       if (!binding.target.Parse(target->str())) {
-        LOG(WARNING) << "invalid key sequence #" << i << ".";
+        LOG(WARNING) << "invalid key sequence #" << i
+                     << ", with invalid send_sequence pattern: "
+                     << target->str() << ".";
         continue;
       }
     } else if (auto option = map->GetValue("toggle")) {
-      binding.action = std::bind(&toggle_option, _1, option->str());
+      binding.action = [option](auto engine) {
+        toggle_option(engine, option->str());
+      };
     } else if (auto option = map->GetValue("set_option")) {
-      binding.action = std::bind(&set_option, _1, option->str());
+      binding.action = [option](auto engine) {
+        set_option(engine, option->str());
+      };
     } else if (auto option = map->GetValue("unset_option")) {
-      binding.action = std::bind(&unset_option, _1, option->str());
+      binding.action = [option](auto engine) {
+        unset_option(engine, option->str());
+      };
     } else if (auto schema = map->GetValue("select")) {
-      binding.action = std::bind(&select_schema, _1, schema->str());
+      binding.action = [schema](auto engine) {
+        select_schema(engine, schema->str());
+      };
     } else {
-      LOG(WARNING) << "invalid key binding #" << i << ".";
+      LOG(WARNING) << "invalid key binding #" << i
+                   << ", accept: " << pattern->str()
+                   << ", when: " << whence->str() << ".";
       continue;
     }
     Bind(key, binding);

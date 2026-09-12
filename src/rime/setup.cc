@@ -21,16 +21,31 @@
 
 namespace rime {
 
-#define Q(x) #x
-RIME_API RIME_MODULE_LIST(kDefaultModules, "default" RIME_EXTRA_MODULES);
-#undef Q
-RIME_API RIME_MODULE_LIST(kDeployerModules, "deployer");
+#include <boost/preprocessor/control/iif.hpp>
+#include <boost/preprocessor/seq/for_each.hpp>
+#include <boost/preprocessor/stringize.hpp>
+#include <boost/preprocessor/tuple/eat.hpp>
+#include <boost/vmd/is_empty.hpp>
+
+#define _RIME_SEQ_FOR_EACH(macro, data, seq)                   \
+  BOOST_PP_IIF(BOOST_VMD_IS_EMPTY(seq), BOOST_PP_TUPLE_EAT(3), \
+               BOOST_PP_SEQ_FOR_EACH)                          \
+  (macro, data, seq)
+
+#define _RIME_MODULE_STR(r, data, elem) , BOOST_PP_STRINGIZE(elem)
+RIME_DLL RIME_MODULE_LIST(kDefaultModules,
+                          "default" _RIME_SEQ_FOR_EACH(_RIME_MODULE_STR,
+                                                       ~,
+                                                       RIME_EXTRA_MODULES));
+#undef _RIME_MODULE_STR
+#undef _RIME_SEQ_FOR_EACH
+RIME_DLL RIME_MODULE_LIST(kDeployerModules, "deployer");
 RIME_MODULE_LIST(kLegacyModules, "legacy");
 
 RIME_REGISTER_MODULE_GROUP(default, "core", "dict", "gears")
 RIME_REGISTER_MODULE_GROUP(deployer, "core", "dict", "levers")
 
-RIME_API void LoadModules(const char* module_names[]) {
+RIME_DLL void LoadModules(const char* module_names[]) {
   ModuleManager& mm(ModuleManager::instance());
   for (const char** m = module_names; *m; ++m) {
     if (RimeModule* module = mm.Find(*m)) {
@@ -39,7 +54,7 @@ RIME_API void LoadModules(const char* module_names[]) {
   }
 }
 
-RIME_API void SetupDeployer(RimeTraits* traits) {
+RIME_DLL void SetupDeployer(RimeTraits* traits) {
   if (!traits)
     return;
   Deployer& deployer(Service::instance().deployer());
@@ -65,7 +80,7 @@ RIME_API void SetupDeployer(RimeTraits* traits) {
     deployer.staging_dir = deployer.user_data_dir / "build";
 }
 
-RIME_API void SetupLogging(const char* app_name,
+RIME_DLL void SetupLogging(const char* app_name,
                            int min_log_level,
                            const char* log_dir) {
 #ifdef RIME_ENABLE_LOGGING
@@ -81,14 +96,21 @@ RIME_API void SetupLogging(const char* app_name,
     }
   }
   google::SetLogFilenameExtension(".log");
+  google::SetLogSymlink(google::GLOG_INFO, app_name);
+  google::SetLogSymlink(google::GLOG_WARNING, app_name);
+  google::SetLogSymlink(google::GLOG_ERROR, app_name);
   // Do not allow other users to read/write log files created by current
   // process.
   FLAGS_logfile_mode = 0600;
-  google::InitGoogleLogging(app_name);
+  if (google::IsGoogleLoggingInitialized()) {
+    LOG(WARNING) << "Glog is already initialized.";
+  } else {
+    google::InitGoogleLogging(app_name);
+  }
 #endif  // RIME_ENABLE_LOGGING
 }
 
-RIME_API void SetupLogging(const char* app_name) {
+RIME_DLL void SetupLogging(const char* app_name) {
   SetupLogging(app_name, 0, NULL);
 }
 

@@ -4,6 +4,7 @@
 //
 // 2011-11-02 GONG Chen <chen.sst@gmail.com>
 //
+#include <algorithm>
 #include <cstdlib>
 #include <sstream>
 #include <boost/algorithm/string.hpp>
@@ -97,7 +98,7 @@ static TextFormat plain_userdb_format = {
 };
 
 template <>
-RIME_API UserDbWrapper<TextDb>::UserDbWrapper(const path& file_path,
+RIME_DLL UserDbWrapper<TextDb>::UserDbWrapper(const path& file_path,
                                               const string& db_name)
     : TextDb(file_path, db_name, "userdb", plain_userdb_format) {}
 

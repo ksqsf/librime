@@ -53,7 +53,6 @@ set(rime_dict_deps
     ${LevelDb_LIBRARY}
     ${Marisa_LIBRARY})
 set(rime_gears_deps
-    ${ICONV_LIBRARIES}
     ${ICU_LIBRARIES}
     ${Opencc_LIBRARY})
 set(rime_levers_deps "")
@@ -93,7 +92,11 @@ if(BUILD_SHARED_LIBS)
     set_target_properties(rime PROPERTIES INSTALL_NAME_DIR "@rpath")
   endif()
   install(TARGETS rime DESTINATION ${CMAKE_INSTALL_FULL_LIBDIR})
-
+  if(MSVC)
+    install(FILES $<TARGET_PDB_FILE:rime>
+      DESTINATION ${CMAKE_INSTALL_FULL_LIBDIR}
+      OPTIONAL)
+  endif()
   if(BUILD_SEPARATE_LIBS)
     add_library(rime-dict ${rime_dict_module_src})
     target_link_libraries(rime-dict
@@ -166,4 +169,8 @@ else()
     OUTPUT_NAME "rime" PREFIX "lib"
     ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/lib)
   install(TARGETS rime-static DESTINATION ${CMAKE_INSTALL_FULL_LIBDIR})
+endif()
+if(DEFINED RIME_SETUP_EXTRA_MODULES)
+  target_compile_definitions(${rime_library} PRIVATE
+    "RIME_EXTRA_MODULES=${RIME_SETUP_EXTRA_MODULES}")
 endif()

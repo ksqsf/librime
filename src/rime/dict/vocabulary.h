@@ -50,6 +50,8 @@ struct DictEntry {
   Code code;           // multi-syllable code from prism
   string custom_code;  // user defined code
   double weight = 0.0;
+  // 全碼匹配長度積分，記錄該詞條對應的路徑中，屬於「全拼」部分的字符總長度
+  double quality_len = 0.0;
   int commit_count = 0;
   int remaining_code_length = 0;
   int matching_code_size = 0;
@@ -79,7 +81,7 @@ class DictEntryList : public vector<of<DictEntry>> {
 
 using DictEntryFilter = function<bool(an<DictEntry> entry)>;
 
-class RIME_API DictEntryFilterBinder {
+class RIME_DLL DictEntryFilterBinder {
  public:
   virtual ~DictEntryFilterBinder() = default;
   virtual void AddFilter(DictEntryFilter filter);

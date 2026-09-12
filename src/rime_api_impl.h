@@ -1,6 +1,8 @@
 // intended to be included multiple times in c++ source files with different
 // RIME_FLAVORED macro definitions
 
+#include "rime_api.h"
+
 #include <rime/common.h>
 #include <rime/composition.h>
 #include <rime/config.h>
@@ -36,10 +38,11 @@ RIME_DEPRECATED void RimeSetup(RimeTraits* traits) {
 
 RIME_DEPRECATED void RimeSetNotificationHandler(RimeNotificationHandler handler,
                                                 void* context_object) {
-  using namespace std::placeholders;
   if (handler) {
     Service::instance().SetNotificationHandler(
-        std::bind(handler, context_object, _1, _2, _3));
+        [context_object, handler](auto id, auto type, auto value) {
+          handler(context_object, id, type, value);
+        });
   } else {
     Service::instance().ClearNotificationHandler();
   }
@@ -246,6 +249,10 @@ RIME_DEPRECATED Bool RimeGetContext(RimeSessionId session_id,
       context->menu.highlighted_candidate_index = selected_index % page_size;
       int i = 0;
       context->menu.num_candidates = page->candidates.size();
+      if (ctx->get_option("_hide_candidate")) {
+        context->menu.num_candidates = 0;
+        return True;
+      }
       context->menu.candidates = new RimeCandidate[page->candidates.size()];
       for (const an<Candidate>& cand : page->candidates) {
         RimeCandidate* dest = &context->menu.candidates[i++];
@@ -1020,6 +1027,51 @@ static Bool RimeChangePage(RimeSessionId session_id, Bool backward) {
   return Bool(ctx->Highlight(index));
 }
 
+static char* dup_string(const string& s) {
+  if (s.empty())
+    return nullptr;
+  char* p = new char[s.length() + 1];
+  std::strcpy(p, s.c_str());
+  return p;
+}
+
+static Bool fill_candidate_preview(const Composition::CandidatePreview& src,
+                                   RimeCandidatePreview* dst) {
+  if (src.selected_text.empty()) {
+    return False;
+  }
+  dst->text_before_selection = dup_string(src.text_before_selection);
+  dst->selected_text = dup_string(src.selected_text);
+  dst->text_after_selection = dup_string(src.text_after_selection);
+  return True;
+}
+
+static Bool RimeGetCandidatePreview(RimeSessionId session_id,
+                                    RimeCandidatePreview* preview) {
+  if (!preview || preview->data_size <= 0)
+    return False;
+  RIME_STRUCT_CLEAR(*preview);
+
+  an<Session> session(Service::instance().GetSession(session_id));
+  if (!session)
+    return False;
+  Context* ctx = session->context();
+  if (!ctx)
+    return False;
+
+  return fill_candidate_preview(ctx->GetCandidatePreview(), preview);
+}
+
+static Bool RimeFreeCandidatePreview(RimeCandidatePreview* preview) {
+  if (!preview)
+    return False;
+  delete[] preview->text_before_selection;
+  delete[] preview->selected_text;
+  delete[] preview->text_after_selection;
+  RIME_STRUCT_CLEAR(*preview);
+  return True;
+}
+
 static Bool RimeHighlightCandidate(RimeSessionId session_id, size_t index) {
   return (Bool)do_with_candidate(session_id, index, &Context::Highlight);
 }
@@ -1225,6 +1277,8 @@ RIME_API RIME_FLAVORED(RimeApi) * RIME_FLAVORED(rime_get_api)() {
     s_api.highlight_candidate_on_current_page =
         &RimeHighlightCandidateOnCurrentPage;
     s_api.change_page = &RimeChangePage;
+    s_api.get_candidate_preview = &RimeGetCandidatePreview;
+    s_api.free_candidate_preview = &RimeFreeCandidatePreview;
   }
   return &s_api;
 }
