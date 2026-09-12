@@ -84,6 +84,7 @@ bool TextDb::Update(const string& key, const string& value) {
   if (!loaded() || readonly())
     return false;
   DLOG(INFO) << "update db entry: " << key << " => " << value;
+  ++revision_;
   data_[key] = value;
   modified_ = true;
   return true;
@@ -93,6 +94,7 @@ bool TextDb::Erase(const string& key) {
   if (!loaded() || readonly())
     return false;
   DLOG(INFO) << "erase db entry: " << key;
+  ++revision_;
   if (data_.erase(key) == 0)
     return false;
   modified_ = true;
@@ -149,6 +151,7 @@ bool TextDb::Close() {
 }
 
 void TextDb::Clear() {
+  ++revision_;
   metadata_.clear();
   data_.clear();
 }
@@ -195,6 +198,7 @@ bool TextDb::MetaUpdate(const string& key, const string& value) {
   if (!loaded() || readonly())
     return false;
   DLOG(INFO) << "update db metadata: " << key << " => " << value;
+  ++revision_;
   metadata_[key] = value;
   modified_ = true;
   return true;

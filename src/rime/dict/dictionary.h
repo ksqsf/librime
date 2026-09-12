@@ -35,6 +35,8 @@ class RIME_DLL DictEntryIterator : public DictEntryFilterBinder {
   void AddChunk(dictionary::Chunk&& chunk);
   void Sort();
   void AddFilter(DictEntryFilter filter) override;
+  // An independent cursor, suitable for retaining an unconsumed lookup.
+  DictEntryIterator Clone() const;
   an<DictEntry> Peek();
   bool Next();
   bool Skip(size_t num_entries);
@@ -76,7 +78,8 @@ class Dictionary : public Class<Dictionary, const Ticket&> {
       size_t start_pos,
       const hash_set<string>* blacklist = nullptr,
       bool predict_word = false,
-      double initial_credibility = 0.0);
+      double initial_credibility = 0.0,
+      set<size_t>* accessed_positions = nullptr);
   // if predictive is true, do an expand search with limit,
   // otherwise do an exact match.
   // return num of matching keys.

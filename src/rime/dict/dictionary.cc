@@ -93,10 +93,13 @@ CodeMatch match_extra_code(const table::Code* extra_code,
                            size_t depth,
                            const SyllableGraph& syll_graph,
                            size_t current_pos,
-                           bool predict_word) {
+                           bool predict_word,
+                           set<size_t>* accessed_positions) {
   const CodeMatch kFailed{false, 0, 0};
   if (!extra_code || depth >= extra_code->size)
     return {true, depth, current_pos};
+  if (accessed_positions)
+    accessed_positions->insert(current_pos);
   if (current_pos >= syll_graph.interpreted_length) {
     if (predict_word)
       return {true, depth, syll_graph.interpreted_length};
@@ -112,8 +115,9 @@ CodeMatch match_extra_code(const table::Code* extra_code,
     return kFailed;
   CodeMatch best_match = kFailed;
   for (const SpellingProperties* props : spellings->second) {
-    CodeMatch match = match_extra_code(extra_code, depth + 1, syll_graph,
-                                       props->end_pos, predict_word);
+    CodeMatch match =
+        match_extra_code(extra_code, depth + 1, syll_graph, props->end_pos,
+                         predict_word, accessed_positions);
     if (!match.success)
       continue;
     if (match.end_pos > best_match.end_pos)
@@ -126,6 +130,14 @@ CodeMatch match_extra_code(const table::Code* extra_code,
 
 DictEntryIterator::DictEntryIterator()
     : query_result_(New<dictionary::QueryResult>()) {}
+
+DictEntryIterator DictEntryIterator::Clone() const {
+  DictEntryIterator copy(*this);
+  copy.query_result_ = New<dictionary::QueryResult>(*query_result_);
+  if (entry_)
+    copy.entry_ = New<DictEntry>(*entry_);
+  return copy;
+}
 
 void DictEntryIterator::AddChunk(dictionary::Chunk&& chunk) {
   query_result_->chunks.push_back(std::move(chunk));
@@ -240,9 +252,10 @@ static void lookup_table(Table* table,
                          const SyllableGraph& syllable_graph,
                          size_t start_pos,
                          bool predict_word,
-                         double initial_credibility) {
+                         double initial_credibility,
+                         set<size_t>* accessed_positions) {
   TableQueryResult result;
-  if (!table->Query(syllable_graph, start_pos, &result)) {
+  if (!table->Query(syllable_graph, start_pos, &result, accessed_positions)) {
     return;
   }
   // copy result
@@ -254,7 +267,8 @@ static void lookup_table(Table* table,
       if (a.extra_code()) {
         do {
           dictionary::CodeMatch match = dictionary::match_extra_code(
-              a.extra_code(), 0, syllable_graph, end_pos, predict_word);
+              a.extra_code(), 0, syllable_graph, end_pos, predict_word,
+              accessed_positions);
           if (!match.success)
             continue;
           size_t matching_code_size = a.index_code().size() + match.depth;
@@ -272,7 +286,8 @@ an<DictEntryCollector> Dictionary::Lookup(const SyllableGraph& syllable_graph,
                                           size_t start_pos,
                                           const hash_set<string>* blacklist,
                                           bool predict_word,
-                                          double initial_credibility) {
+                                          double initial_credibility,
+                                          set<size_t>* accessed_positions) {
   if (!loaded())
     return nullptr;
   auto collector = New<DictEntryCollector>();
@@ -280,7 +295,7 @@ an<DictEntryCollector> Dictionary::Lookup(const SyllableGraph& syllable_graph,
     if (!table->IsOpen())
       continue;
     lookup_table(table.get(), collector.get(), syllable_graph, start_pos,
-                 predict_word, initial_credibility);
+                 predict_word, initial_credibility, accessed_positions);
   }
   if (collector->empty())
     return nullptr;

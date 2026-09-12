@@ -12,6 +12,7 @@
 #include <rime/translator.h>
 #include <rime/algo/algebra.h>
 #include <rime/gear/memory.h>
+#include <rime/gear/incremental_word_graph.h>
 #include <rime/gear/translator_commons.h>
 
 namespace rime {
@@ -63,6 +64,7 @@ class ScriptTranslator : public Translator,
   bool enable_word_completion_ = false;
   the<Corrector> corrector_;
   the<Poet> poet_;
+  IncrementalWordGraph word_graph_;
   vector<an<Phrase>> queue_;
 };
 

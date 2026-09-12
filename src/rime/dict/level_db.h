@@ -39,6 +39,8 @@ class LevelDb : public Db, public Recoverable, public Transactional {
           const string& db_type = "");
   virtual ~LevelDb();
 
+  uint64_t revision() const override { return revision_; }
+
   bool Remove() override;
   bool Open() override;
   bool OpenReadOnly() override;

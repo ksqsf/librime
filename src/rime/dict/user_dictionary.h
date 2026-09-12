@@ -60,7 +60,8 @@ class UserDictionary : public Class<UserDictionary, const Ticket&> {
                                     size_t start_pos,
                                     size_t depth_limit = 0,
                                     size_t predict_word_from_depth = 0,
-                                    double initial_credibility = 0.0);
+                                    double initial_credibility = 0.0,
+                                    set<size_t>* accessed_positions = nullptr);
   size_t LookupWords(UserDictEntryIterator* result,
                      const string& input,
                      bool predictive,
@@ -78,6 +79,7 @@ class UserDictionary : public Class<UserDictionary, const Ticket&> {
 
   const string& name() const { return name_; }
   TickCount tick() const { return tick_; }
+  uint64_t revision() const { return db_ ? db_->revision() : 0; }
 
   RIME_DLL static an<DictEntry> CreateDictEntry(const string& key,
                                                 const string& value,

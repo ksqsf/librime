@@ -194,7 +194,7 @@ an<Sentence> Poet::MakeSentenceWithStrategy(const WordGraph& graph,
                                             const string& preceding_text) {
   map<int, typename Strategy::State> states;
   Strategy::Initiate(states[0]);
-  for (const auto& sv : graph) {
+  for (const auto& sv : graph.edges()) {
     size_t start_pos = sv.first;
     if (states.find(start_pos) == states.end())
       continue;
@@ -202,7 +202,7 @@ an<Sentence> Poet::MakeSentenceWithStrategy(const WordGraph& graph,
     const auto& source_state = states[start_pos];
     const auto update = [this, &states, &sv, start_pos, total_length,
                          &preceding_text](const Line& candidate) {
-      for (const auto& ev : sv.second) {
+      for (const auto& ev : sv.second->entries) {
         size_t end_pos = ev.first;
         if (start_pos == 0 && end_pos == total_length)
           continue;  // exclude single word from the result
@@ -265,13 +265,13 @@ deque<an<Sentence>> Poet::MakeSentences(const WordGraph& graph,
   using State = std::list<Line>;
   map<int, State> states;
   states[0].push_back(Line::kEmpty);
-  for (const auto& sv : graph) {
+  for (const auto& sv : graph.edges()) {
     size_t start_pos = sv.first;
     if (states.find(start_pos) == states.end())
       continue;
 
     const auto& source_state = states[start_pos];
-    for (const auto& ev : sv.second) {
+    for (const auto& ev : sv.second->entries) {
       size_t end_pos = ev.first;
       if (start_pos == 0 && end_pos == total_length)
         continue;

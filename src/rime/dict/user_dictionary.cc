@@ -25,6 +25,7 @@
 namespace rime {
 
 struct DfsState {
+  set<size_t>* accessed_positions;
   size_t depth_limit;
   size_t predict_word_from_depth;
   TickCount present_tick;
@@ -217,6 +218,8 @@ void UserDictionary::DfsLookup(const SyllableGraph& syll_graph,
                                size_t current_pos,
                                const string& current_prefix,
                                DfsState* state) {
+  if (state->accessed_positions)
+    state->accessed_positions->insert(current_pos);
   auto index = syll_graph.indices.find(current_pos);
   if (index == syll_graph.indices.end()) {
     return;
@@ -264,6 +267,8 @@ void UserDictionary::DfsLookup(const SyllableGraph& syll_graph,
         if (!state->NextEntry())  // reached the end of db
           break;
       }
+      if (state->accessed_positions)
+        state->accessed_positions->insert(end_pos);
       auto next_index = syll_graph.indices.find(end_pos);
       if (next_index == syll_graph.indices.end()) {
         // reached the end of input, predict word if requested
@@ -316,11 +321,15 @@ an<UserDictEntryCollector> UserDictionary::Lookup(
     size_t start_pos,
     size_t depth_limit,
     size_t predict_word_from_depth,
-    double initial_credibility) {
+    double initial_credibility,
+    set<size_t>* accessed_positions) {
+  if (accessed_positions)
+    accessed_positions->insert(start_pos);
   if (!table_ || !prism_ || !loaded() ||
       start_pos >= syll_graph.interpreted_length)
     return nullptr;
   DfsState state;
+  state.accessed_positions = accessed_positions;
   state.depth_limit = depth_limit;
   state.predict_word_from_depth = predict_word_from_depth;
   FetchTickCount();

@@ -555,7 +555,9 @@ an<Translation> TableTranslator::MakeSentence(const string& input,
       continue;
     string active_input = input.substr(start_pos);
     string active_key = active_input + ' ';
-    auto& same_start_pos = graph[start_pos];
+    auto row = New<WordGraph::Row>();
+    graph.AddEdges(start_pos, row);
+    auto& same_start_pos = row->entries;
     // lookup dictionaries
     if (user_dict_ && user_dict_->loaded()) {
       for (size_t len = 1; len <= active_input.length(); ++len) {

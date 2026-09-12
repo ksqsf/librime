@@ -180,6 +180,7 @@ bool LevelDb::Update(const string& key, const string& value) {
   if (!loaded() || readonly())
     return false;
   DLOG(INFO) << "update db entry: " << key << " => " << value;
+  ++revision_;
   return db_->Update(key, value, in_transaction());
 }
 
@@ -187,6 +188,7 @@ bool LevelDb::Erase(const string& key) {
   if (!loaded() || readonly())
     return false;
   DLOG(INFO) << "erase db entry: " << key;
+  ++revision_;
   return db_->Erase(key, in_transaction());
 }
 
@@ -279,6 +281,7 @@ bool LevelDb::Close() {
   if (!loaded())
     return false;
 
+  ++revision_;
   db_->Release();
 
   LOG(INFO) << "closed db '" << name() << "'.";
@@ -303,6 +306,7 @@ bool LevelDb::MetaUpdate(const string& key, const string& value) {
 bool LevelDb::BeginTransaction() {
   if (!loaded())
     return false;
+  ++revision_;
   db_->ClearBatch();
   in_transaction_ = true;
   return true;
@@ -311,6 +315,7 @@ bool LevelDb::BeginTransaction() {
 bool LevelDb::AbortTransaction() {
   if (!loaded() || !in_transaction())
     return false;
+  ++revision_;
   db_->ClearBatch();
   in_transaction_ = false;
   return true;
@@ -320,6 +325,7 @@ bool LevelDb::CommitTransaction() {
   if (!loaded() || !in_transaction())
     return false;
   bool ok = db_->CommitBatch();
+  ++revision_;
   db_->ClearBatch();
   in_transaction_ = false;
   return ok;

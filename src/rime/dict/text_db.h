@@ -45,6 +45,8 @@ class TextDb : public Db {
          TextFormat format);
   RIME_DLL virtual ~TextDb();
 
+  uint64_t revision() const override { return revision_; }
+
   RIME_DLL bool Open() override;
   RIME_DLL bool OpenReadOnly() override;
   RIME_DLL bool Close() override;

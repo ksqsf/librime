@@ -570,7 +570,10 @@ const double kPenaltyForAmbiguousSyllable = -2.995732274;
 
 bool Table::Query(const SyllableGraph& syll_graph,
                   size_t start_pos,
-                  TableQueryResult* result) {
+                  TableQueryResult* result,
+                  set<size_t>* accessed_positions) {
+  if (accessed_positions)
+    accessed_positions->insert(start_pos);
   if (!result || !index_ || start_pos >= syll_graph.interpreted_length)
     return false;
   result->clear();
@@ -581,6 +584,8 @@ bool Table::Query(const SyllableGraph& syll_graph,
     size_t current_pos = q.front().first;
     TableQuery query(q.front().second);
     q.pop();
+    if (accessed_positions)
+      accessed_positions->insert(current_pos);
     auto index = syll_graph.indices.find(current_pos);
     if (index == syll_graph.indices.end()) {
       continue;
@@ -617,6 +622,10 @@ bool Table::Query(const SyllableGraph& syll_graph,
         if (!accessor.exhausted()) {
           (*result)[end_pos].push_back(accessor);
         }
+        // A later key may continue a prefix at the input boundary. Record the
+        // dependency without enqueueing all those currently terminal paths.
+        if (accessed_positions && end_pos >= syll_graph.interpreted_length)
+          accessed_positions->insert(end_pos);
         if (end_pos < syll_graph.interpreted_length &&
             query.Advance(syll_id, next_credibility, delta_quality_len,
                           current_pos)) {

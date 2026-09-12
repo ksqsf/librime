@@ -113,6 +113,7 @@ class ScriptTranslation : public Translation {
   ScriptTranslation(ScriptTranslator* translator,
                     Corrector* corrector,
                     Poet* poet,
+                    IncrementalWordGraph* incremental_word_graph,
                     const string& input,
                     size_t start,
                     size_t end_of_input,
@@ -120,6 +121,8 @@ class ScriptTranslation : public Translation {
                     double sentence_cutoff_threshold)
       : translator_(translator),
         poet_(poet),
+        incremental_word_graph_(incremental_word_graph),
+        input_(input),
         start_(start),
         end_of_input_(end_of_input),
         syllabifier_(
@@ -148,6 +151,9 @@ class ScriptTranslation : public Translation {
 
   ScriptTranslator* translator_;
   Poet* poet_;
+  IncrementalWordGraph* incremental_word_graph_;
+  WordGraph word_graph_;
+  string input_;
   size_t start_;
   size_t end_of_input_;
   an<ScriptSyllabifier> syllabifier_;
@@ -206,8 +212,10 @@ ScriptTranslator::ScriptTranslator(const Ticket& ticket)
 
 an<Translation> ScriptTranslator::Query(const string& input,
                                         const Segment& segment) {
-  if (!dict_ || !dict_->loaded())
+  if (!dict_ || !dict_->loaded()) {
+    word_graph_.Clear();
     return nullptr;
+  }
   if (!segment.HasAnyTagIn(tags_))
     return nullptr;
   DLOG(INFO) << "input = '" << input << "', [" << segment.start << ", "
@@ -221,10 +229,14 @@ an<Translation> ScriptTranslator::Query(const string& input,
   size_t end_of_input = engine_->context()->input().length();
   // the translator should survive translations it creates
   auto result = New<ScriptTranslation>(
-      this, corrector_.get(), poet_.get(), input, segment.start, end_of_input,
-      max_sentences_, sentence_cutoff_threshold_);
-  if (!result || !result->Evaluate(
-                     dict_.get(), enable_user_dict ? user_dict_.get() : NULL)) {
+      this, corrector_.get(), poet_.get(), &word_graph_, input, segment.start,
+      end_of_input, max_sentences_, sentence_cutoff_threshold_);
+  if (!result)
+    return nullptr;
+  bool evaluated = result->Evaluate(
+      dict_.get(), enable_user_dict ? user_dict_.get() : nullptr);
+  word_graph_.Prune();
+  if (!evaluated) {
     return nullptr;
   }
   auto deduped = New<DistinctTranslation>(result);
@@ -456,14 +468,23 @@ bool ScriptTranslation::Evaluate(Dictionary* dict, UserDictionary* user_dict) {
   bool predict_word = translator_->enable_word_completion() &&
                       start_ + consumed == end_of_input_;
 
-  phrase_ =
-      dict->Lookup(syllable_graph, 0, &translator_->blacklist(), predict_word);
-  if (user_dict) {
-    const size_t kUnlimitedDepth = 0;
-    const size_t kNumSyllablesToPredictWord = 4;
-    user_phrase_ =
-        user_dict->Lookup(syllable_graph, 0, kUnlimitedDepth,
-                          predict_word ? kNumSyllablesToPredictWord : 0);
+  word_graph_ = incremental_word_graph_->Advance(
+      input_, syllable_graph, dict, user_dict, translator_->blacklist(),
+      translator_->max_homophones(), predict_word);
+  if (!word_graph_.GetPhrases(&phrase_, &user_phrase_)) {
+    set<size_t> accessed_positions;
+    phrase_ = dict->Lookup(syllable_graph, 0, &translator_->blacklist(),
+                           predict_word, 0.0, &accessed_positions);
+    if (user_dict) {
+      const size_t kUnlimitedDepth = 0;
+      const size_t kNumSyllablesToPredictWord = 4;
+      user_phrase_ =
+          user_dict->Lookup(syllable_graph, 0, kUnlimitedDepth,
+                            predict_word ? kNumSyllablesToPredictWord : 0, 0.0,
+                            &accessed_positions);
+    }
+    word_graph_.SetPhrases(phrase_, user_phrase_,
+                           std::move(accessed_positions));
   }
   if (!phrase_ && !user_phrase_)
     return false;
@@ -700,19 +721,24 @@ WordGraph ScriptTranslation::PrepareForMakingSentence(
     UserDictionary* user_dict) {
   const int kMaxSyllablesForUserPhraseQuery = 5;
   const auto& syllable_graph = syllabifier_->syllable_graph();
-  WordGraph graph;
   for (const auto& x : syllable_graph.edges) {
-    auto& same_start_pos = graph[x.first];
+    if (word_graph_.FindEdges(x.first))
+      continue;
+    auto row = New<WordGraph::Row>();
+    auto& same_start_pos = row->entries;
     if (user_dict) {
       EnrollEntries(same_start_pos,
                     user_dict->Lookup(syllable_graph, x.first,
-                                      kMaxSyllablesForUserPhraseQuery));
+                                      kMaxSyllablesForUserPhraseQuery, 0, 0.0,
+                                      &row->accessed_positions));
     }
     // merge lookup results
     EnrollEntries(same_start_pos, dict->Lookup(syllable_graph, x.first,
-                                               &translator_->blacklist()));
+                                               &translator_->blacklist(), false,
+                                               0.0, &row->accessed_positions));
+    word_graph_.AddEdges(x.first, std::move(row));
   }
-  return graph;
+  return word_graph_;
 }
 
 deque<an<Sentence>> ScriptTranslation::MakeSentences(
