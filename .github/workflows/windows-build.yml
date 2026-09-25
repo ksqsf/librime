@@ -23,8 +23,6 @@ jobs:
           - { compiler: clang, cc: clang, cxx: clang++ }
           - { compiler: msvc, arch: x86, cross_arch: x64_x86 }
     env:
-      boost_version: 1.92.0
-      BOOST_ROOT: ${{ github.workspace }}\deps\boost-1.92.0
       RIME_PLUGINS: ${{ inputs.rime_plugins }}
 
     steps:
@@ -39,6 +37,7 @@ jobs:
           $envfile = ".\env.bat"
           $envcontent = @"
             set RIME_ROOT=%CD%
+            set BOOST_ROOT=%CD%/deps/boost
             set CXX=${{ matrix.cxx }}
             set CC=${{ matrix.cc }}
             set CMAKE_GENERATOR=Ninja

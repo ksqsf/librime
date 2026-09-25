@@ -3,9 +3,9 @@ set -ex
 
 RIME_ROOT="$(cd "$(dirname "$0")"; pwd)"
 
-boost_version="${boost_version=1.92.0}"
+. "${RIME_ROOT}/deps/versions.sh"
 
-BOOST_ROOT="${BOOST_ROOT=${RIME_ROOT}/deps/boost-${boost_version}}"
+BOOST_ROOT="${BOOST_ROOT=${RIME_ROOT}/deps/boost}"
 
 boost_tarball="boost_${boost_version//./_}.tar.gz"
 download_url="https://archives.boost.io/release/${boost_version}/source/${boost_tarball}"
@@ -18,7 +18,7 @@ download_boost_source() {
     fi
     echo "${boost_tarball_sha256sum}" | shasum -a 256 -c
     tar -xzf "${boost_tarball}"
-    mv "boost_${boost_version//./_}" "boost-${boost_version}"
+    mv "boost_${boost_version//./_}" "boost"
     [[ -f "${BOOST_ROOT}/bootstrap.sh" ]]
 }
 
